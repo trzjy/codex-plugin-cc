@@ -1,0 +1,9 @@
+[Unit]
+Description=Update the Claude Codex plugin from the configured fork marketplace
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/zjy/.local/bin/claude plugin marketplace update openai-codex
+ExecStart=/home/zjy/.local/bin/claude plugin update codex@openai-codex --scope user

@@ -1,0 +1,155 @@
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Prepare verified upstream sync PR
+    if: github.repository == 'trzjy/codex-plugin-cc'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out fork main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Fetch official upstream
+        run: |
+          git remote add upstream https://github.com/openai/codex-plugin-cc.git
+          git fetch --no-tags upstream main
+
+      - name: Detect upstream changes
+        id: detect
+        run: |
+          if git merge-base --is-ancestor upstream/main origin/main; then
+            echo "sync_required=false" >> "$GITHUB_OUTPUT"
+            echo "Fork main already contains upstream main." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "sync_required=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node.js
+        if: steps.detect.outputs.sync_required == 'true'
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Prepare merge candidate
+        if: steps.detect.outputs.sync_required == 'true'
+        env:
+          SYNC_BRANCH: automation/upstream-sync
+        run: |
+          git config user.name "Upstream Sync Bot"
+          git config user.email "actions@users.noreply.github.com"
+          shared_base="$(git merge-base origin/main upstream/main)"
+          current_version="$(git show origin/main:package.json | node -e 'let s=""; process.stdin.on("data", c => s += c); process.stdin.on("end", () => process.stdout.write(JSON.parse(s).version))')"
+          upstream_version="$(git show upstream/main:package.json | node -e 'let s=""; process.stdin.on("data", c => s += c); process.stdin.on("end", () => process.stdout.write(JSON.parse(s).version))')"
+          next_version="$(node scripts/next-fork-version.mjs "$current_version" "$upstream_version")"
+
+          node scripts/verify-version-only-divergence.mjs "$shared_base" origin/main
+          git switch --force-create "$SYNC_BRANCH" origin/main
+
+          set +e
+          git merge --no-commit --no-ff upstream/main
+          merge_status=$?
+          set -e
+
+          if [ "$merge_status" -ne 0 ]; then
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            if [ "${#conflicts[@]}" -eq 0 ]; then
+              echo "Upstream merge failed without resolvable file conflicts." >&2
+              exit 1
+            fi
+            allowed=(
+              ".claude-plugin/marketplace.json"
+              "package-lock.json"
+              "package.json"
+              "plugins/codex/.claude-plugin/plugin.json"
+            )
+            for conflict in "${conflicts[@]}"; do
+              allowed_conflict=false
+              for version_file in "${allowed[@]}"; do
+                if [ "$conflict" = "$version_file" ]; then
+                  allowed_conflict=true
+                  break
+                fi
+              done
+              if [ "$allowed_conflict" != true ]; then
+                echo "Unapproved merge conflict: $conflict" >&2
+                exit 1
+              fi
+              git checkout --theirs -- "$conflict"
+              git add "$conflict"
+            done
+            if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+              echo "Unresolved merge conflicts remain." >&2
+              exit 1
+            fi
+          fi
+
+          node scripts/bump-version.mjs "$next_version"
+          git add -A
+          echo "next_version=$next_version" >> "$GITHUB_ENV"
+          echo "upstream_sha=$(git rev-parse upstream/main)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        if: steps.detect.outputs.sync_required == 'true'
+        run: npm ci
+
+      - name: Install Codex CLI
+        if: steps.detect.outputs.sync_required == 'true'
+        run: npm install -g @openai/codex
+
+      - name: Verify merge candidate
+        if: steps.detect.outputs.sync_required == 'true'
+        run: |
+          npm test
+          npm run build
+          npm run check-version
+          git diff --check --cached
+
+      - name: Push candidate branch
+        if: steps.detect.outputs.sync_required == 'true'
+        env:
+          SYNC_BRANCH: automation/upstream-sync
+        run: |
+          git commit -m "chore: sync official upstream ${upstream_sha:0:12}"
+          remote_head="$(git ls-remote --heads origin "refs/heads/$SYNC_BRANCH" | cut -f1)"
+          if [ -n "$remote_head" ]; then
+            git push --force-with-lease="refs/heads/$SYNC_BRANCH:$remote_head" origin "HEAD:$SYNC_BRANCH"
+          else
+            git push --force-with-lease="refs/heads/$SYNC_BRANCH:" origin "HEAD:$SYNC_BRANCH"
+          fi
+
+      - name: Create or update sync pull request
+        if: steps.detect.outputs.sync_required == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SYNC_BRANCH: automation/upstream-sync
+        run: |
+          pr_number="$(gh pr list --base main --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number')"
+          title="chore: sync official upstream (${next_version})"
+          body="Automated candidate for official upstream \`${upstream_sha}\`.
+
+The workflow resolved only version-file conflicts proven to contain fork-side version changes. All other conflicts fail closed. Tests, build, version checks, and fork governance residual tests passed before this branch was pushed.
+
+This pull request requires manual review and merge."
+          if [ -n "$pr_number" ]; then
+            gh pr edit "$pr_number" --title "$title" --body "$body"
+          else
+            gh pr create --base main --head "$SYNC_BRANCH" --title "$title" --body "$body"
+          fi

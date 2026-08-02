@@ -1,0 +1,11 @@
+[Unit]
+Description=Check daily for verified Claude Codex plugin releases
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+Unit=claude-codex-plugin-update.service
+
+[Install]
+WantedBy=timers.target
