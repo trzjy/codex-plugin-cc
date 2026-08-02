@@ -16,8 +16,6 @@ import {
     getSessionRuntimeStatus,
     importExternalAgentSession,
     interruptAppServerTurn,
-    parseStructuredOutput,
-    readOutputSchema,
     runAppServerReview,
     runAppServerTurn
   } from "./lib/codex.mjs";
@@ -55,7 +53,6 @@ import {
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 import {
   renderNativeReviewResult,
-  renderReviewResult,
   renderStoredJobResult,
   renderCancelReport,
   renderJobStatusReport,
@@ -65,7 +62,6 @@ import {
 } from "./lib/render.mjs";
 
 const ROOT_DIR = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
-const REVIEW_SCHEMA = path.join(ROOT_DIR, "schemas", "review-output.schema.json");
 const DEFAULT_STATUS_WAIT_TIMEOUT_MS = 240000;
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
 const VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
@@ -412,13 +408,9 @@ async function executeReviewRun(request) {
     prompt,
     model: request.model,
     sandbox: "read-only",
-    outputSchema: readOutputSchema(REVIEW_SCHEMA),
     onProgress: request.onProgress
   });
-  const parsed = parseStructuredOutput(result.finalMessage, {
-    status: result.status,
-    failureMessage: result.error?.message ?? result.stderr
-  });
+  const rawOutput = typeof result.finalMessage === "string" ? result.finalMessage : "";
   const payload = {
     review: reviewName,
     target,
@@ -434,9 +426,7 @@ async function executeReviewRun(request) {
       stdout: result.finalMessage,
       reasoning: result.reasoningSummary
     },
-    result: parsed.parsed,
-    rawOutput: parsed.rawOutput,
-    parseError: parsed.parseError,
+    rawOutput,
     reasoningSummary: result.reasoningSummary
   };
 
@@ -445,12 +435,17 @@ async function executeReviewRun(request) {
     threadId: result.threadId,
     turnId: result.turnId,
     payload,
-    rendered: renderReviewResult(parsed, {
-      reviewLabel: reviewName,
-      targetLabel: context.target.label,
-      reasoningSummary: result.reasoningSummary
-    }),
-    summary: parsed.parsed?.summary ?? parsed.parseError ?? firstMeaningfulLine(result.finalMessage, `${reviewName} finished.`),
+    rendered: renderNativeReviewResult(
+      { status: result.status, stdout: rawOutput, stderr: result.stderr },
+      {
+        reviewLabel: reviewName,
+        targetLabel: context.target.label,
+        reasoningSummary: result.reasoningSummary
+      }
+    ),
+    summary: rawOutput.trim()
+      ? `${reviewName} output received; main-writer business consumption required.`
+      : `${reviewName} produced no review output.`,
     jobTitle: `Codex ${reviewName}`,
     jobClass: "review",
     targetLabel: context.target.label

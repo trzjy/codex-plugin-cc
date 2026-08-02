@@ -45,18 +45,9 @@ A finding should answer:
 4. What concrete change would reduce the risk?
 </finding_bar>
 
-<structured_output_contract>
-Return only valid JSON matching the provided schema.
-Keep the output compact and specific.
-Use `needs-attention` if there is any material risk worth blocking on.
-Use `approve` only if you cannot support any substantive adversarial finding from the provided context.
-Every finding must include:
-- the affected file
-- `line_start` and `line_end`
-- a confidence score from 0 to 1
-- a concrete recommendation
-Write the summary like a terse ship/no-ship assessment, not a neutral recap.
-</structured_output_contract>
+<output_contract>
+Return a concise evidence-backed review with material findings first. For each finding, include the affected file and line, direct evidence, material impact, confidence, and a concrete minimum convergence. Explicitly assess over-implementation, implementation deviation, and fake implementation when applicable. Preserve all substantive findings even if the final formatting is imperfect; output shape alone never approves, blocks, or triggers another review.
+</output_contract>
 
 <grounding_rules>
 Be aggressive, but stay grounded.

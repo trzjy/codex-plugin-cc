@@ -366,7 +366,7 @@ test("review accepts the quoted raw argument style for built-in base-branch revi
   assert.match(result.stdout, /No material issues found/);
 });
 
-test("adversarial review renders structured findings over app-server turn/start", () => {
+test("adversarial review preserves raw findings over app-server turn/start", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
   installFakeCodex(binDir);

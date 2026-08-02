@@ -589,7 +589,9 @@ async function captureTurn(client, threadId, startRequest, options = {}) {
       state.threadTurnIds.set(state.threadId, state.turnId);
     }
     for (const message of state.bufferedNotifications) {
-      if (belongsToTurn(state, message)) {
+      if (message.method === "thread/started" || message.method === "thread/name/updated") {
+        applyTurnNotification(state, message);
+      } else if (belongsToTurn(state, message)) {
         applyTurnNotification(state, message);
       } else {
         if (previousHandler) {
@@ -1183,37 +1185,6 @@ export async function findLatestTaskThread(cwd) {
 
 export function buildPersistentTaskThreadName(prompt) {
   return buildTaskThreadName(prompt);
-}
-
-export function parseStructuredOutput(rawOutput, fallback = {}) {
-  if (!rawOutput) {
-    return {
-      parsed: null,
-      parseError: fallback.failureMessage ?? "Codex did not return a final structured message.",
-      rawOutput: rawOutput ?? "",
-      ...fallback
-    };
-  }
-
-  try {
-    return {
-      parsed: JSON.parse(rawOutput),
-      parseError: null,
-      rawOutput,
-      ...fallback
-    };
-  } catch (error) {
-    return {
-      parsed: null,
-      parseError: error.message,
-      rawOutput,
-      ...fallback
-    };
-  }
-}
-
-export function readOutputSchema(schemaPath) {
-  return readJsonFile(schemaPath);
 }
 
 export { DEFAULT_CONTINUE_PROMPT, TASK_THREAD_PREFIX };

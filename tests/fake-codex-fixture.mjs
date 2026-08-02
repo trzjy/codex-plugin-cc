@@ -190,46 +190,23 @@ function nativeReviewText(target) {
   return "Reviewed uncommitted changes.\\nNo material issues found.";
 }
 
-function structuredReviewPayload(prompt) {
+function adversarialReviewPayload(prompt) {
   if (prompt.includes("adversarial software review")) {
     if (BEHAVIOR === "adversarial-clean") {
-      return JSON.stringify({
-        verdict: "approve",
-        summary: "No material issues found.",
-        findings: [],
-        next_steps: []
-      });
+      return "Review complete.\\nNo material issues found.";
     }
 
-    return JSON.stringify({
-      verdict: "needs-attention",
-      summary: "One adversarial concern surfaced.",
-      findings: [
-        {
-          severity: "high",
-          title: "Missing empty-state guard",
-          body: "The change assumes data is always present.",
-          file: "src/app.js",
-          line_start: 4,
-          line_end: 6,
-          confidence: 0.87,
-          recommendation: "Handle empty collections before indexing."
-        }
-      ],
-      next_steps: ["Add an empty-state test."]
-    });
+    return [
+      "Findings:",
+      "- [high] Missing empty-state guard (src/app.js:4-6)",
+      "  Evidence: the change indexes the collection without proving data is present.",
+      "  Material effect: an empty collection raises at runtime.",
+      "  Confidence: 0.87",
+      "  Minimum convergence: handle empty collections before indexing and add a focused test."
+    ].join("\\n");
   }
 
-  if (BEHAVIOR === "invalid-json") {
-    return "not valid json";
-  }
-
-  return JSON.stringify({
-    verdict: "approve",
-    summary: "No material issues found.",
-    findings: [],
-    next_steps: []
-  });
+  return null;
 }
 
 function taskPayload(prompt, resume) {
@@ -454,9 +431,9 @@ rl.on("line", (line) => {
 	        saveState(state);
 	        send({ id: message.id, result: { turn: buildTurn(turnId) } });
 
-        const payload = message.params.outputSchema && message.params.outputSchema.properties && message.params.outputSchema.properties.verdict
-          ? structuredReviewPayload(prompt)
-          : taskPayload(prompt, thread.name && thread.name.startsWith("Codex Companion Task") && prompt.includes("Continue from the current thread state"));
+        const payload =
+          adversarialReviewPayload(prompt) ??
+          taskPayload(prompt, thread.name && thread.name.startsWith("Codex Companion Task") && prompt.includes("Continue from the current thread state"));
 
         if (
           BEHAVIOR === "with-subagent" ||
