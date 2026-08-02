@@ -145,9 +145,9 @@ jobs:
           title="chore: sync official upstream (${next_version})"
           body="Automated candidate for official upstream \`${upstream_sha}\`.
 
-The workflow resolved only version-file conflicts proven to contain fork-side version changes. All other conflicts fail closed. Tests, build, version checks, and fork governance residual tests passed before this branch was pushed.
+          The workflow resolved only version-file conflicts proven to contain fork-side version changes. All other conflicts fail closed. Tests, build, version checks, and fork governance residual tests passed before this branch was pushed.
 
-This pull request requires manual review and merge."
+          This pull request requires manual review and merge."
           if [ -n "$pr_number" ]; then
             gh pr edit "$pr_number" --title "$title" --body "$body"
           else
